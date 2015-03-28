@@ -4,12 +4,15 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import negotiator.AgentID;
 import negotiator.Bid;
 import negotiator.DeadlineType;
+import negotiator.Domain;
 import negotiator.Timeline;
 import negotiator.actions.Accept;
 import negotiator.actions.Action;
@@ -33,6 +36,7 @@ public class Groupn extends AbstractNegotiationParty {
 	Bid latestBid;
 	Bid maxBid;
 	Bid ownBid;
+	Set<Bid> allBids;
 	Map<Integer,Value> values;
 	private double latestUtility;
 	String name;
@@ -87,7 +91,23 @@ public class Groupn extends AbstractNegotiationParty {
 		System.out.println("Reservation point: " + reservationPoint);
 		opponents = new HashMap<String,Opponent>();
 		numberOfOpponents = 0;
+		generateAllBids();
 		
+	}
+	
+	
+	/**
+	 * Generate all bids. Since getNumberOfPossibleBids() is unfinished,
+	 * just random generate them randomly instead
+	 */
+	public void generateAllBids(){
+		allBids = new HashSet<Bid>();
+		int combinations = 1;
+		Domain domain = utilitySpace.getDomain();
+		allBids.add(maxBid);
+		for(int i = 0; i < 100000; ++i){
+			allBids.add(domain.getRandomBid());
+		}
 	}
 
 	/**
@@ -103,7 +123,7 @@ public class Groupn extends AbstractNegotiationParty {
 		// Concede some. Currently linear
 		double range = (1.0 - reservationPoint);
 		double timePassed = timeline.getCurrentTime()/timeline.getTotalTime();
-		targetPoint = 1.0-timePassed*range;
+		targetPoint = 1.0-Math.pow(timePassed,discountingFactor)*range;
 		
 		// if we are the first party, offer max
 		if (!validActions.contains(Accept.class)) {
@@ -123,11 +143,66 @@ public class Groupn extends AbstractNegotiationParty {
 		}
 	}
 	
+	
+	public Bid generateBid(){
+		double score = Double.NEGATIVE_INFINITY;
+		for(Bid bid : allBids){
+			boolean doContinue = false;
+			try {
+				doContinue = utilitySpace.getUtility(bid) < targetPoint;
+			} catch (Exception e) {
+				System.err.println("exception in generateBid");
+				e.printStackTrace();
+			}
+			if(doContinue)
+				continue;
+			double rating = rate(bid);
+			if(rating > score){
+				score = rating;
+				ownBid = bid;
+			}
+		}
+		
+		return ownBid;
+	}
+	
+	public double rate(Bid bid){
+		double ownutility = 0;
+		try {
+			ownutility = utilitySpace.getUtility(bid);
+		} catch (Exception e) {
+			System.err.println("exception in rate(Bid)");
+			e.printStackTrace();
+		}
+		double utilityAverage = 0;
+		double[] opponentUtilities = new double[numberOfOpponents];
+		int i = 0;
+		for(Map.Entry<String, Opponent> entry : opponents.entrySet()){
+			Opponent op = entry.getValue();
+			opponentUtilities[i] = op.getPredictedUtility(bid);
+			utilityAverage += opponentUtilities[i];
+			i++;
+		}
+		utilityAverage /= (numberOfOpponents);
+		double rating = ownutility;
+		double utilityVariation = 0;
+		for(i = 0; i < numberOfOpponents; ++i){
+			double factor = opponentUtilities[i]-utilityAverage;
+			utilityVariation += factor*factor;
+		}
+		utilityVariation = utilityVariation/numberOfOpponents;
+		double utilityStandardDeviation = Math.sqrt(utilityVariation);
+		double deviationImportance = 1.0;
+		rating = utilityAverage - deviationImportance*utilityStandardDeviation/(numberOfOpponents);
+		return rating;
+	}
+	
+	
 	/**
 	 * Strategy: Change the lowest important value to one that the opponents want
 	 * @return
 	 */
-	public Bid generateBid(){
+	public Bid generateBidSimple(){
 		int lowestDisagreedIssue = getLowestDisagreedIssue();
 		if(lowestDisagreedIssue == 0)	// no disagreements found!
 			return ownBid;

@@ -10,6 +10,8 @@ import negotiator.Bid;
 
 public class Opponent {
 	double[] weights;
+	int[] changes;
+	int[] earliestChange;
 	double reservation;
 	double certainity;	// Maybe want one for each weight
 	int issueCount;
@@ -23,6 +25,8 @@ public class Opponent {
 	public Opponent(int issues,double reservationInitialAssumption,String name){
 		issueCount = issues;
 		weights = new double[issues];
+		changes = new int[issues];
+		earliestChange = new int[issues];
 		reservation = reservationInitialAssumption;
 		bids = new ArrayList<Bid>();
 		utilitiesBids = new ArrayList<Double>();
@@ -35,6 +39,37 @@ public class Opponent {
 			values = bid.getValues();
 		}
 		bids.add(bid);
+		// Check if bid changed since last time
+		if(bids.size() > 1){
+			for(int i = 0; i < issueCount; ++i){
+				try {
+					if(!bid.getValue(i+1).equals(bids.get(bids.size()-2+1))){
+						if(earliestChange[i] == 0)
+							earliestChange[i] = bids.size();
+						changes[i]++;
+					}
+				} catch (Exception e) {
+					System.err.println("Error in addBid for opponent: bid.getValue()");
+					e.printStackTrace();
+				}
+			}
+		}
+		calculateWeights();
+	}
+	
+	private void calculateWeights(){
+		for(int i = 0; i < issueCount; ++i){
+			weights[i] = Math.pow(0.75,changes[i])*earliestChange[i];
+		}
+		
+		// Normalize
+		double sum = 0;
+		for(int i = 0; i < issueCount; ++i){
+			sum += weights[i];
+		}
+		for(int i = 0; i < issueCount; ++i){
+			weights[i] /= sum;
+		}
 	}
 	
 	/**
@@ -43,11 +78,27 @@ public class Opponent {
 	 * @return
 	 * @throws Exception
 	 */
-	public double getMutualValue(UtilitySpace utilitySpace) throws Exception{
+	public double getUtility(UtilitySpace utilitySpace) throws Exception{
 		Bid b =  new Bid();
 		for(int i = 0; i < values.size(); ++i)
 			b.setValue(i, values.get(i));
 		return utilitySpace.getUtility(b);
+	}
+	
+	public double getPredictedUtility(Bid bid){
+		double utility = 0;
+		for(int i = 0; i < values.size(); ++i){
+			try {
+				if(bid.getValue(i+1).equals(values.get(i)))
+					utility += weights[i];
+			} catch (Exception e) {
+				System.err.println("Exception in getPredictedUtility");
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			}
+		}
+		return utility;
+		
 	}
 	
 	public Value getValue(int issue){
